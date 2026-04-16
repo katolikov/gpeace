@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ steps.version.outputs.VERSION }} -m "Release ${{ steps.version.outputs.VERSION }}"
+          git push origin ${{ steps.version.outputs.VERSION }}
+
+      - name: Run tests
+        run: go test ./... -v
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o dist/gpeace-linux-amd64   .
+          GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w" -o dist/gpeace-linux-arm64   .
+          GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o dist/gpeace-darwin-amd64  .
+          GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o dist/gpeace-darwin-arm64  .
+
+      - name: Create archives
+        run: |
+          cd dist
+          for f in gpeace-*; do
+            tar czf "${f}.tar.gz" "$f"
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## gpeace ${{ steps.version.outputs.VERSION }}
+
+            Interactive Git merge conflict resolver for the terminal.
+
+            ### Installation
+
+            Download the binary for your platform, extract, and place in your PATH:
+
+            ```bash
+            tar xzf gpeace-<platform>.tar.gz
+            sudo mv gpeace-<platform> /usr/local/bin/gpeace
+            ```
+
+            ### Binaries
+
+            | Platform      | File                          |
+            |---------------|-------------------------------|
+            | Linux x86_64  | `gpeace-linux-amd64.tar.gz`   |
+            | Linux ARM64   | `gpeace-linux-arm64.tar.gz`   |
+            | macOS x86_64  | `gpeace-darwin-amd64.tar.gz`  |
+            | macOS ARM64   | `gpeace-darwin-arm64.tar.gz`  |
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          draft: false
+          prerelease: false
+
+  update-repo-metadata:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Update repository description and topics
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              description: 'Interactive Git merge conflict resolver for the terminal. Beautiful TUI built with Go + Charm.',
+              homepage: '',
+            });
+            await github.rest.repos.replaceAllTopics({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              names: [
+                'git',
+                'merge-conflicts',
+                'cli',
+                'tui',
+                'terminal',
+                'golang',
+                'bubbletea',
+                'lipgloss',
+                'charm',
+                'conflict-resolution',
+                'developer-tools',
+                'git-merge'
+              ]
+            });
