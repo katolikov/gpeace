@@ -15,7 +15,17 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - run: go test ./... -v
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,9 +54,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a ${{ steps.version.outputs.VERSION }} -m "Release ${{ steps.version.outputs.VERSION }}"
           git push origin ${{ steps.version.outputs.VERSION }}
-
-      - name: Run tests
-        run: go test ./... -v
 
       - name: Build binaries
         run: |
@@ -100,37 +107,3 @@ jobs:
             dist/checksums.txt
           draft: false
           prerelease: false
-
-  update-repo-metadata:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Update repository description and topics
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.repos.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              description: 'Interactive Git merge conflict resolver for the terminal. Beautiful TUI built with Go + Charm.',
-              homepage: '',
-            });
-            await github.rest.repos.replaceAllTopics({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              names: [
-                'git',
-                'merge-conflicts',
-                'cli',
-                'tui',
-                'terminal',
-                'golang',
-                'bubbletea',
-                'lipgloss',
-                'charm',
-                'conflict-resolution',
-                'developer-tools',
-                'git-merge'
-              ]
-            });
