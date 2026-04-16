@@ -16,10 +16,8 @@
 When you run `gpeace` inside a Git repo with merge conflicts, you get an interactive full-screen TUI:
 
 ```
-╔══════════════════════════════════════════════════════════════════╗
-║  gpeace   File 1/2: src/app.py  |  Conflict 1/3               ║
-╚══════════════════════════════════════════════════════════════════╝
-
+ gpeace   File 1/2: src/app.py  |  Conflict 1/3                  ← cyan header
+───────────────────────────────────────────────────────────────────
   ╭─ Current Change (HEAD) ──────────────────────────────────────╮
   │  1 │ def greet(name):                                        │
   │  2 │     return f"Hi there, {name}! Welcome!"                │
@@ -46,8 +44,10 @@ When you run `gpeace` inside a Git repo with merge conflicts, you get an interac
       Skip This Conflict
       Skip Entire File
 
-  ↑/↓ navigate  enter select  q quit
+  ↑/↓ navigate  enter select  pgup/pgdn scroll (100%)  q quit
 ```
+
+Large conflicts are **scrollable** - use `PgUp`/`PgDn` to scroll through the panels while the menu stays fixed at the bottom:
 
 After resolving all conflicts, you see a summary screen:
 
@@ -123,12 +123,14 @@ That's it. The tool finds all conflicted files, walks you through each conflict 
 
 ### Controls
 
-| Key            | Action         |
-|----------------|----------------|
-| `↑` / `k`     | Move cursor up |
-| `↓` / `j`     | Move cursor down |
-| `Enter`        | Select option  |
-| `q` / `Ctrl+C` | Quit          |
+| Key              | Action                    |
+|------------------|---------------------------|
+| `↑` / `k`       | Move cursor up            |
+| `↓` / `j`       | Move cursor down          |
+| `Enter`          | Select option             |
+| `PgUp` / `PgDn`  | Scroll conflict panels   |
+| `Ctrl+U` / `Ctrl+D` | Half-page scroll     |
+| `q` / `Ctrl+C`   | Quit                     |
 
 ### Resolution Options
 

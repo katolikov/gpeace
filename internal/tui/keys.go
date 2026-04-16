@@ -26,4 +26,6 @@ var keys = keyMap{
 		key.WithKeys("q", "ctrl+c"),
 		key.WithHelp("q", "quit"),
 	),
+	// Note: pgup/pgdown/ctrl+u/ctrl+d are handled by the viewport component
+	// and forwarded automatically in handleKey when no menu key matches.
 }

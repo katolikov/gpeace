@@ -4,7 +4,6 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	// Brand color
-	purple = lipgloss.Color("99")
 	green  = lipgloss.Color("10")
 	blue   = lipgloss.Color("12")
 	cyan   = lipgloss.Color("14")
@@ -13,12 +12,13 @@ var (
 	white  = lipgloss.Color("15")
 	red    = lipgloss.Color("9")
 	dim    = lipgloss.Color("241")
+	black  = lipgloss.Color("0")
 
-	// Header bar
+	// Header bar - black text on cyan for high contrast
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(white).
-			Background(purple).
+			Foreground(black).
+			Background(cyan).
 			Padding(0, 1)
 
 	// Current change panel (green border)

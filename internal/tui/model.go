@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -44,14 +45,17 @@ var menuItems = []string{
 
 const menuLen = 6
 
+// Fixed chrome lines: header(1) + blank(1) + blank-after-viewport(1) + menu(6) + blank(1) + help(1) = 11
+const fixedChrome = 11
+
 // fileResult tracks the outcome for a single file.
 type fileResult struct {
-	path          string
-	resolved      int
-	skipped       int
-	skippedFile   bool
-	parseError    bool
-	errorMsg      string
+	path        string
+	resolved    int
+	skipped     int
+	skippedFile bool
+	parseError  bool
+	errorMsg    string
 }
 
 // Model is the bubbletea model for gpeace.
@@ -71,9 +75,10 @@ type Model struct {
 	resolutions []resolver.Resolution
 
 	// UI state
-	cursor int
-	width  int
-	height int
+	cursor   int
+	width    int
+	height   int
+	viewport viewport.Model
 
 	// Results
 	results []fileResult
@@ -81,11 +86,13 @@ type Model struct {
 
 // NewModel creates a new Model for the given repo root.
 func NewModel(repoRoot string) Model {
+	vp := viewport.New(80, 10)
 	return Model{
 		phase:    phaseScanning,
 		repoRoot: repoRoot,
 		width:    80,
 		height:   24,
+		viewport: vp,
 		results:  []fileResult{},
 	}
 }
@@ -146,6 +153,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		vpHeight := m.height - fixedChrome
+		if vpHeight < 3 {
+			vpHeight = 3
+		}
+		m.viewport.Width = m.width
+		m.viewport.Height = vpHeight
+		if m.phase == phaseResolving {
+			m.updateViewportContent()
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -179,6 +195,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle menu navigation keys
 	switch {
 	case key.Matches(msg, keys.Up):
 		m.cursor--
@@ -188,6 +205,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < 0 {
 			m.cursor = 0
 		}
+		return m, nil
 
 	case key.Matches(msg, keys.Down):
 		m.cursor++
@@ -197,6 +215,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor >= menuLen {
 			m.cursor = menuLen - 1
 		}
+		return m, nil
 
 	case key.Matches(msg, keys.Enter):
 		return m.handleSelection()
@@ -205,7 +224,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	return m, nil
+	// Forward all other keys to viewport for scrolling (pgup, pgdown, etc.)
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	return m, cmd
 }
 
 func (m Model) handleSelection() (tea.Model, tea.Cmd) {
@@ -231,6 +253,7 @@ func (m Model) handleSelection() (tea.Model, tea.Cmd) {
 	// Advance to next conflict or finish file
 	if m.conflictIdx+1 < len(m.conflicts) {
 		m.conflictIdx++
+		m.updateViewportContent()
 		return m, nil
 	}
 
@@ -277,6 +300,7 @@ func (m Model) handleFileParsed(msg fileParsedMsg) (tea.Model, tea.Cmd) {
 	m.resolutions = make([]resolver.Resolution, len(conflicts))
 	m.cursor = 0
 	m.phase = phaseResolving
+	m.updateViewportContent()
 	return m, nil
 }
 
@@ -313,6 +337,47 @@ func (m Model) advanceFile() (tea.Model, tea.Cmd) {
 	return m, parseFile(m.repoRoot, m.files[m.fileIdx])
 }
 
+// updateViewportContent renders both conflict panels into the viewport.
+func (m *Model) updateViewportContent() {
+	if m.conflictIdx >= len(m.conflicts) {
+		return
+	}
+	conflict := m.conflicts[m.conflictIdx]
+
+	w := m.width
+	if w < 40 {
+		w = 40
+	}
+	panelW := w - 4
+	if panelW < 30 {
+		panelW = 30
+	}
+
+	var b strings.Builder
+
+	// Current change panel
+	currentTitle := currentTitleStyle.Render(
+		fmt.Sprintf("Current Change (%s)", labelOrDefault(conflict.CurrentLabel, "ours")))
+	currentContent := renderCodeBlock(conflict.CurrentLines)
+	currentPanel := currentBorderStyle.Width(panelW).Render(
+		currentTitle + "\n" + currentContent)
+	b.WriteString("  ")
+	b.WriteString(currentPanel)
+	b.WriteString("\n\n")
+
+	// Incoming change panel
+	incomingTitle := incomingTitleStyle.Render(
+		fmt.Sprintf("Incoming Change (%s)", labelOrDefault(conflict.IncomingLabel, "theirs")))
+	incomingContent := renderCodeBlock(conflict.IncomingLines)
+	incomingPanel := incomingBorderStyle.Width(panelW).Render(
+		incomingTitle + "\n" + incomingContent)
+	b.WriteString("  ")
+	b.WriteString(incomingPanel)
+
+	m.viewport.SetContent(b.String())
+	m.viewport.GotoTop()
+}
+
 // View renders the current state.
 func (m Model) View() string {
 	switch m.phase {
@@ -340,46 +405,24 @@ func (m Model) viewError() string {
 func (m Model) viewResolving() string {
 	var b strings.Builder
 
-	conflict := m.conflicts[m.conflictIdx]
 	w := m.width
 	if w < 40 {
 		w = 40
 	}
 
-	// Header
+	// Header (fixed at top)
 	header := headerStyle.Width(w).Render(
 		fmt.Sprintf("  gpeace   File %d/%d: %s  |  Conflict %d/%d",
 			m.fileIdx+1, len(m.files), m.files[m.fileIdx],
 			m.conflictIdx+1, len(m.conflicts)))
 	b.WriteString(header)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
-	panelW := w - 4
-	if panelW < 30 {
-		panelW = 30
-	}
+	// Viewport (scrollable conflict panels)
+	b.WriteString(m.viewport.View())
+	b.WriteString("\n")
 
-	// Current change panel
-	currentTitle := currentTitleStyle.Render(
-		fmt.Sprintf("Current Change (%s)", labelOrDefault(conflict.CurrentLabel, "ours")))
-	currentContent := renderCodeBlock(conflict.CurrentLines)
-	currentPanel := currentBorderStyle.Width(panelW).Render(
-		currentTitle + "\n" + currentContent)
-	b.WriteString("  ")
-	b.WriteString(currentPanel)
-	b.WriteString("\n\n")
-
-	// Incoming change panel
-	incomingTitle := incomingTitleStyle.Render(
-		fmt.Sprintf("Incoming Change (%s)", labelOrDefault(conflict.IncomingLabel, "theirs")))
-	incomingContent := renderCodeBlock(conflict.IncomingLines)
-	incomingPanel := incomingBorderStyle.Width(panelW).Render(
-		incomingTitle + "\n" + incomingContent)
-	b.WriteString("  ")
-	b.WriteString(incomingPanel)
-	b.WriteString("\n\n")
-
-	// Menu
+	// Menu (fixed at bottom)
 	for i, item := range menuItems {
 		if i == optSep {
 			b.WriteString("    ")
@@ -399,7 +442,16 @@ func (m Model) viewResolving() string {
 
 	b.WriteString("\n")
 	b.WriteString("  ")
-	b.WriteString(helpStyle.Render("↑/↓ navigate  enter select  q quit"))
+
+	// Help bar with scroll hint when content overflows
+	scrollPct := m.viewport.ScrollPercent()
+	if m.viewport.TotalLineCount() > m.viewport.Height {
+		b.WriteString(helpStyle.Render(
+			fmt.Sprintf("↑/↓ navigate  enter select  pgup/pgdn scroll (%d%%)  q quit",
+				int(scrollPct*100))))
+	} else {
+		b.WriteString(helpStyle.Render("↑/↓ navigate  enter select  q quit"))
+	}
 	b.WriteString("\n")
 
 	return b.String()
